@@ -1,19 +1,5 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
-
-fn readSize(allocator: Allocator) struct { x: u32, y: u32 } {
-    var args_iter = try std.process.argsWithAllocator(allocator);
-    defer args_iter.deinit();
-
-    _ = args_iter.next(); // bin name
-    const x = args_iter.next() orelse "";
-    const y = args_iter.next() orelse "";
-
-    return .{
-        .x = std.fmt.parseInt(u32, x, 10) catch 1920,
-        .y = std.fmt.parseInt(u32, y, 10) catch 1080
-    };
-}
+const expect = @import("std").testing.expect;
 
 const Pixel = struct {
     r: u8,
@@ -21,35 +7,66 @@ const Pixel = struct {
     b: u8
 };
 
-fn createImage(allocator: Allocator, x: u32, y: u32) !std.ArrayList(Pixel) {
-    var image = std.ArrayList(Pixel).init(allocator);
-    try image.ensureTotalCapacity(x * y);
-    try image.appendNTimes(Pixel{ .r = 127, .g =60, .b = 120}, x * y);
-    return image;
+const img_height = 1080;
+const img_width = 1920;
+const tile_size = 40;
+const img_rows = img_height / tile_size;
+const img_columns = img_width / tile_size;
+const pixel_count = img_height * img_width;
+
+comptime {
+    if (img_rows % 1 != 0) {
+        @compileError("'img_height / tile_size' should be a whole number!");
+    }
+    if (img_columns % 1 != 0) {
+        @compileError("'img_width / tile_size' should be a whole number!");
+    }
 }
 
-fn writePpmImage(allocator: Allocator, x: u32, y: u32, image: std.ArrayList(Pixel)) !void {
+const Image = [img_height][img_width]Pixel;
+
+var img_static = std.mem.zeroes(Image);
+
+fn fillSquare(offset_x: usize, offset_y: usize) void {
+    var x: usize = 0;
+    while (x < tile_size) : (x += 1) {
+        var y: usize = 0;
+        while (y < tile_size) : (y += 1) {
+            img_static[x + offset_x][y + offset_y] = Pixel{ .r = 100, .g = 30, .b = 150 };
+        }
+    }
+}
+
+fn createImage() Image {
+    var row: usize = 0;
+    while (row < img_rows) : (row += 1) {
+        var column: usize = 0;
+        while (column < img_columns) : (column += 1) {
+            const offset_x = row * tile_size;
+            const offset_y = column * tile_size;
+            fillSquare(offset_x, offset_y);
+        }
+    }
+    return img_static;
+}
+
+fn writePpmImage(image: Image) !void {
     const out_file = try std.fs.cwd().createFile("image.ppm", .{ .read = true });
     defer out_file.close();
 
     // PPM header is ASCII based
-    const header = try std.fmt.allocPrint(allocator, "P6 {d} {d} 255\n", .{ x, y });
+    const header = std.fmt.comptimePrint("P6 {d} {d} 255\n", .{ img_width, img_height });
 
     _ = try out_file.write(header);
 
-    for (image.items) |pixel| {
-        _ = try out_file.write(&[_]u8{ pixel.r, pixel.g, pixel.b });
+    for (image) |row| {
+        for (row) |pixel| {
+            _ = try out_file.write(&[_]u8{ pixel.r, pixel.g, pixel.b });
+        }
     }
 }
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-
-    const allocator = gpa.allocator();
-
-    const size = readSize(allocator);
-    const image = try createImage(allocator, size.x, size.y);
-    defer image.deinit();
-
-    try writePpmImage(allocator, size.x, size.y, image);
+    const image = createImage();
+    try writePpmImage(image);
 }
