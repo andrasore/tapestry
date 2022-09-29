@@ -18,5 +18,6 @@ in pkgs.mkShell {
     zig
     pkgs.zls
     pkgs.niv
+    pkgs.imagemagick
   ];
 }
